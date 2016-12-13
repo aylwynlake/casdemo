@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:sec="http://www.springframework.org/schema/security"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:util="http://www.springframework.org/schema/util"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+                        http://www.springframework.org/schema/util 
+                        http://www.springframework.org/schema/util/spring-util.xsd 
+                        http://www.springframework.org/schema/security http://www.springframework.org/schema/security/spring-security.xsd">
+
+    <!-- <sec:ldap-user-service id="ldapUserDetailsService" user-search-base="ou=users,ou=system" user-search-filter="(uid={0})"
+                           group-search-base="ou=groups,ou=system" group-search-filter="(uniqueMember={0})" group-role-attribute="cn"
+                           server-ref="apacheDsLdapServer" role-prefix="ROLE_" />
+
+    <sec:ldap-server id="apacheDsLdapServer" manager-dn="uid=admin,ou=system" manager-password="secret" port="10389"
+                     url="ldap://localhost:10389/" /> -->
+
+    <util:properties id="users" location="classpath:users.properties"/>
+    
+    <bean id="inMemoryUserDetailsManager" class="org.springframework.security.provisioning.InMemoryUserDetailsManager">
+      <constructor-arg ref="users"/>
+    </bean>
+    
+    <sec:authentication-manager alias="authenticationManager">
+        <sec:authentication-provider ref="preAuthAuthProvider"/>
+    </sec:authentication-manager>
+
+    <bean id="springSecurityFilterChain" class="org.springframework.security.web.FilterChainProxy">
+        <sec:filter-chain-map path-type="ant">
+            <sec:filter-chain pattern="/secured*" filters="casAuthenticationFilter, casValidationFilter, wrappingFilter,j2eePreAuthFilter, fsi"/>
+            <sec:filter-chain pattern="/home*" filters="wrappingFilter, j2eePreAuthFilter, fsi" />
+        </sec:filter-chain-map>
+    </bean>
+
+    <bean id="webExpressionHandler" class="org.springframework.security.web.access.expression.DefaultWebSecurityExpressionHandler" />
+
+    <bean id="preAuthAuthProvider" class="org.springframework.security.web.authentication.preauth.PreAuthenticatedAuthenticationProvider">
+        <property name="preAuthenticatedUserDetailsService">
+            <bean id="userDetailsServiceWrapper" class="org.springframework.security.core.userdetails.UserDetailsByNameServiceWrapper">
+                <property name="userDetailsService" ref="inMemoryUserDetailsManager"/>
+            </bean>
+        </property>
+    </bean>
+
+    <bean id="j2eePreAuthFilter" class="org.springframework.security.web.authentication.preauth.j2ee.J2eePreAuthenticatedProcessingFilter">
+        <property name="authenticationManager" ref="authenticationManager"/>
+        <property name="authenticationDetailsSource">
+            <bean class="org.springframework.security.web.authentication.WebAuthenticationDetailsSource" />
+        </property>
+    </bean>
+
+    <bean id="httpRequestAccessDecisionManager" class="org.springframework.security.access.vote.AffirmativeBased">
+        <property name="allowIfAllAbstainDecisions" value="false"/>
+        <property name="decisionVoters">
+            <list>
+                <ref bean="roleVoter"/>
+            </list>
+        </property>
+    </bean>
+
+    <bean id="fsi" class="org.springframework.security.web.access.intercept.FilterSecurityInterceptor">
+        <property name="authenticationManager" ref="authenticationManager"/>
+        <property name="accessDecisionManager" ref="httpRequestAccessDecisionManager"/>
+        <property name="securityMetadataSource">
+            <sec:filter-invocation-definition-source>
+                <sec:intercept-url pattern="/secured*" access="ROLE_ADMINISTRATORS"/>
+                <sec:intercept-url pattern="/home*" />
+            </sec:filter-invocation-definition-source>
+        </property>
+    </bean>
+
+    <bean id="roleVoter" class="org.springframework.security.access.vote.RoleVoter"/>
+
+    <bean class="org.jasig.cas.client.validation.Cas20ServiceTicketValidator" id="ticketValidator">
+        <constructor-arg index="0" value="${casServerUrlPrefix}" />
+    </bean>
+
+    <bean id="casAuthenticationFilter" class="org.jasig.cas.client.authentication.AuthenticationFilter">
+        <property name="casServerLoginUrl" value="${casServerLoginUrl}" />
+        <property name="serverName" value="${serverName}" />
+    </bean>
+
+    <bean id="casValidationFilter" class="org.jasig.cas.client.validation.Cas20ProxyReceivingTicketValidationFilter">
+        <property name="serverName" value="${serverName}" />
+        <property name="exceptionOnValidationFailure" value="true" />
+        <property name="redirectAfterValidation" value="true" />
+        <property name="ticketValidator" ref="ticketValidator" />
+    </bean>
+
+    <bean id="wrappingFilter" class="org.jasig.cas.client.util.HttpServletRequestWrapperFilter" />
+</beans>
